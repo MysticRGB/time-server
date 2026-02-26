@@ -1,0 +1,12 @@
+{
+  "name": "time-server",
+  "version": "1.0.0",
+  "description": "Authoritative time source with clock sync protocol over WebSocket",
+  "main": "time-server.js",
+  "scripts": {
+    "start": "node time-server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

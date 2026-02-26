@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Time Sync Client</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 560px; width: 100%; }
+    h1 { font-size: 20px; margin-bottom: 24px; color: #7eb8ff; }
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2a2d3a;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card h2 { font-size: 13px; text-transform: uppercase; color: #666; margin-bottom: 12px; letter-spacing: 1px; }
+    .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 15px; }
+    .row .label { color: #999; }
+    .row .value { font-family: 'Consolas', monospace; color: #fff; }
+    .row .value.good { color: #4ade80; }
+    .row .value.warn { color: #facc15; }
+    .row .value.bad { color: #f87171; }
+    #log {
+      background: #12141c;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      padding: 14px;
+      font-family: 'Consolas', monospace;
+      font-size: 13px;
+      max-height: 240px;
+      overflow-y: auto;
+      line-height: 1.6;
+      color: #888;
+    }
+    #log .ok { color: #4ade80; }
+    #log .info { color: #7eb8ff; }
+    #log .err { color: #f87171; }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 20px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-bottom: 16px;
+    }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: .4; cursor: default; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Time Sync Client</h1>
+
+  <div>
+    <button id="btnConnect">Подключиться</button>
+    <button id="btnSync" disabled>Синхронизировать</button>
+  </div>
+
+  <div class="card">
+    <h2>Состояние</h2>
+    <div class="row"><span class="label">Статус</span><span class="value" id="status">отключён</span></div>
+    <div class="row"><span class="label">Offset</span><span class="value" id="offset">—</span></div>
+    <div class="row"><span class="label">RTT</span><span class="value" id="rtt">—</span></div>
+    <div class="row"><span class="label">Серверное время</span><span class="value" id="serverTime">—</span></div>
+    <div class="row"><span class="label">Локальное время</span><span class="value" id="localTime">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Лог</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const SYNC_PROBES = 5;
+const RESYNC_INTERVAL_MS = 10 * 60 * 1000;
+
+let ws = null;
+let offset = 0;
+let synced = false;
+let syncCallback = null;
+let resyncTimer = null;
+
+const $ = (id) => document.getElementById(id);
+
+function log(text, cls = '') {
+  const el = $('log');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  const ts = new Date().toLocaleTimeString();
+  line.textContent = `[${ts}] ${text}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function connect() {
+  const isSecure = location.protocol === 'https:' || location.hostname.includes('ngrok');
+  const url = location.hostname.includes('ngrok')
+    ? `wss://${location.host}`
+    : `${isSecure ? 'wss' : 'ws'}://${location.hostname || 'localhost'}:4200`;
+  log(`Подключение к ${url}...`, 'info');
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    $('status').textContent = 'подключён';
+    $('status').className = 'value good';
+    $('btnSync').disabled = false;
+    log('Подключено', 'ok');
+    runSync();
+  };
+
+  ws.onclose = () => {
+    $('status').textContent = 'отключён';
+    $('status').className = 'value bad';
+    $('btnSync').disabled = true;
+    synced = false;
+    clearInterval(resyncTimer);
+    log('Соединение закрыто', 'err');
+  };
+
+  ws.onerror = () => {
+    log('Ошибка соединения', 'err');
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'sync_res') {
+      const t4 = Date.now();
+      if (syncCallback) syncCallback(msg, t4);
+    }
+  };
+}
+
+function sendSyncReq() {
+  return new Promise((resolve) => {
+    const t1 = Date.now();
+    syncCallback = (msg, t4) => {
+      syncCallback = null;
+      const rtt = (t4 - msg.t1) - (msg.t3 - msg.t2);
+      const off = ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2;
+      resolve({ rtt, offset: off, t1, t4 });
+    };
+    ws.send(JSON.stringify({ type: 'sync_req', t1 }));
+  });
+}
+
+async function runSync() {
+  log(`Синхронизация (${SYNC_PROBES} замеров)...`, 'info');
+  const results = [];
+
+  for (let i = 0; i < SYNC_PROBES; i++) {
+    const r = await sendSyncReq();
+    results.push(r);
+    log(`  #${i + 1}  RTT=${r.rtt}ms  offset=${r.offset.toFixed(1)}ms`);
+  }
+
+  const best = results.reduce((a, b) => a.rtt < b.rtt ? a : b);
+  offset = best.offset;
+  synced = true;
+
+  $('offset').textContent = `${offset.toFixed(1)} ms`;
+  $('rtt').textContent = `${best.rtt} ms`;
+  $('rtt').className = 'value ' + (best.rtt < 50 ? 'good' : best.rtt < 150 ? 'warn' : 'bad');
+
+  log(`Выбран замер с RTT=${best.rtt}ms, offset=${offset.toFixed(1)}ms`, 'ok');
+
+  clearInterval(resyncTimer);
+  resyncTimer = setInterval(() => runSync(), RESYNC_INTERVAL_MS);
+}
+
+function getServerTime() {
+  return Date.now() + offset;
+}
+
+setInterval(() => {
+  $('localTime').textContent = new Date().toLocaleTimeString('ru-RU', { hour12: false, fractionalSecondDigits: 3 });
+  if (synced) {
+    $('serverTime').textContent = new Date(getServerTime()).toLocaleTimeString('ru-RU', { hour12: false, fractionalSecondDigits: 3 });
+  }
+}, 50);
+
+$('btnConnect').onclick = () => {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  connect();
+};
+$('btnSync').onclick = () => runSync();
+</script>
+</body>
+</html>
