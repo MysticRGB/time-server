@@ -208,88 +208,128 @@
   <!-- ================= CODE TAB ================= -->
   <div class="tab-content" id="tab-code">
     <div class="doc">
-      <h3>Минимальный код (копируй в игру)</h3>
-      <p>Этот модуль подключается к серверу, синхронизирует время и даёт функцию <code>getServerTime()</code>:</p>
+      <h3>Файл для вставки в игру</h3>
+      <p>Скачайте файл <code>timesync-client.js</code> из репозитория и подключите к вашему проекту. Файл содержит модуль <code>TimeSync</code> — готовый клиент синхронизации.</p>
+      <div class="hint">Файл самодостаточный, без зависимостей. Работает в любом браузере с поддержкой WebSocket.</div>
 
-      <div class="code-block">const TimeSync = (() => {
-  const URL = 'wss://time-server-production.up.railway.app';
-  const RESYNC_MS = 10 * 60 * 1000; // 10 минут
+      <h3>API модуля TimeSync</h3>
+      <div class="code-block">TimeSync.connect(opts)   — подключиться к серверу
+TimeSync.disconnect()    — отключиться (отменяет реконнект)
+TimeSync.resync()        — принудительная пересинхронизация
+TimeSync.getServerTime() — текущее серверное время (мс, unix)
+TimeSync.isSynced()      — true если синхронизация прошла
+TimeSync.getOffset()     — offset в мс (серверное − локальное)
+TimeSync.getRtt()        — RTT последней синхронизации (мс)</div>
 
-  let ws = null;
-  let offset = 0;
-  let synced = false;
-  let _onSync = null;
-  let _syncCb = null;
+      <h3>Параметры connect()</h3>
+      <div class="code-block">TimeSync.connect({
+  url:      'wss://...',   // необязательно, по умолчанию
+                           // wss://time-server-production.up.railway.app
+  onSync:   (info) =&gt; {}, // вызывается после каждой синхронизации
+                           // info = { offset, rtt }
+  onStatus: (status, detail) =&gt; {}
+                           // status: 'connected'|'disconnected'|'error'
+});</div>
 
-  function connect(onSync) {
-    _onSync = onSync || null;
-    ws = new WebSocket(URL);
+      <h3>Быстрый старт (минимальный пример)</h3>
+      <div class="code-block">&lt;script src="timesync-client.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  TimeSync.connect({
+    onSync: (info) =&gt; {
+      console.log('Offset:', info.offset, 'ms, RTT:', info.rtt, 'ms');
+    },
+    onStatus: (status) =&gt; {
+      console.log('Статус:', status);
+    }
+  });
+&lt;/script&gt;</div>
 
-    ws.onopen = () =&gt; _runSync();
+      <h3>Типичные сценарии в игре</h3>
 
-    ws.onmessage = (e) =&gt; {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'sync_res' &amp;&amp; _syncCb) _syncCb(msg, Date.now());
-    };
-
-    ws.onclose = () =&gt; {
-      synced = false;
-      setTimeout(() =&gt; connect(_onSync), 3000);
-    };
+      <p><b>1. Запуск игры только после синхронизации</b></p>
+      <div class="code-block">TimeSync.connect({
+  onSync: () =&gt; {
+    if (!gameStarted) startGame();
+  },
+  onStatus: (s) =&gt; {
+    if (s === 'disconnected') showReconnectOverlay();
+    if (s === 'connected') hideReconnectOverlay();
   }
+});</div>
 
-  function _sendProbe() {
-    return new Promise((resolve) =&gt; {
-      const t1 = Date.now();
-      _syncCb = (msg, t4) =&gt; {
-        _syncCb = null;
-        resolve({
-          rtt: (t4 - msg.t1) - (msg.t3 - msg.t2),
-          offset: ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2
-        });
-      };
-      ws.send(JSON.stringify({ type: 'sync_req', t1 }));
-    });
+      <p><b>2. Обратный отсчёт до события</b></p>
+      <div class="code-block">const EVENT_TIME = 1740000000000; // unix ms
+
+function updateCountdown() {
+  if (!TimeSync.isSynced()) return;
+  const msLeft = EVENT_TIME - TimeSync.getServerTime();
+  if (msLeft &lt;= 0) {
+    showLabel('Событие началось!');
+  } else {
+    const sec = Math.ceil(msLeft / 1000);
+    showLabel(`До события: ${sec} сек`);
   }
+}
+setInterval(updateCountdown, 100);</div>
 
-  async function _runSync() {
-    const results = [];
-    for (let i = 0; i &lt; 5; i++) results.push(await _sendProbe());
-    const best = results.reduce((a, b) =&gt; a.rtt &lt; b.rtt ? a : b);
-    offset = best.offset;
-    synced = true;
-    if (_onSync) _onSync({ offset, rtt: best.rtt });
-    setTimeout(() =&gt; _runSync(), RESYNC_MS);
-  }
+      <p><b>3. Метки времени для действий игрока</b></p>
+      <div class="code-block">function onPlayerAction(action) {
+  sendToGameServer({
+    action: action,
+    timestamp: TimeSync.getServerTime()
+  });
+}
+// На game-сервере сравнивайте timestamp от разных
+// игроков напрямую — они в одной шкале</div>
 
-  return {
-    connect,
-    getServerTime: () =&gt; Date.now() + offset,
-    isSynced: () =&gt; synced,
-    getOffset: () =&gt; offset
-  };
-})();</div>
+      <p><b>4. Синхронизированная анимация / спавн</b></p>
+      <div class="code-block">const WAVE_INTERVAL = 30000; // волна каждые 30 сек
 
-      <h3>Использование в игре</h3>
-      <div class="code-block">// 1. Подключиться (один раз при старте)
-TimeSync.connect((info) =&gt; {
-  console.log(`Синхронизировано! Offset: ${info.offset}ms, RTT: ${info.rtt}ms`);
-});
-
-// 2. Получить серверное время в любой момент
-const now = TimeSync.getServerTime();
-
-// 3. Проверить, прошла ли синхронизация
-if (TimeSync.isSynced()) {
-  // можно начинать игру
+function getCurrentWave() {
+  const t = TimeSync.getServerTime();
+  return Math.floor(t / WAVE_INTERVAL);
 }
 
-// Примеры:
-// Таймер до события (серверное время 1740000000000):
-const msLeft = 1740000000000 - TimeSync.getServerTime();
+function msUntilNextWave() {
+  const t = TimeSync.getServerTime();
+  return WAVE_INTERVAL - (t % WAVE_INTERVAL);
+}</div>
 
-// Сравнение действий двух игроков — оба используют
-// getServerTime(), поэтому метки сравнимы между собой</div>
+      <h3>Интеграция с Construct 3</h3>
+      <div class="code-block">1. Импортируйте timesync-client.js как файл проекта
+   (Files → Import → timesync-client.js)
+
+2. В index.html добавьте перед закрывающим &lt;/head&gt;:
+   &lt;script src="timesync-client.js"&gt;&lt;/script&gt;
+
+3. В событиях Construct используйте через Browser → Execute JS:
+   TimeSync.connect()
+   TimeSync.getServerTime()
+   TimeSync.isSynced()</div>
+
+      <h3>Интеграция с Unity (WebGL)</h3>
+      <div class="code-block">1. Положите timesync-client.js в Assets/Plugins/WebGL/
+
+2. Создайте .jslib файл (Assets/Plugins/WebGL/TimeSync.jslib):
+   mergeInto(LibraryManager.library, {
+     TimeSyncConnect: function() {
+       TimeSync.connect();
+     },
+     TimeSyncGetServerTime: function() {
+       return TimeSync.getServerTime();
+     },
+     TimeSyncIsSynced: function() {
+       return TimeSync.isSynced() ? 1 : 0;
+     }
+   });
+
+3. В C# объявите:
+   [DllImport("__Internal")]
+   private static extern void TimeSyncConnect();
+   [DllImport("__Internal")]
+   private static extern double TimeSyncGetServerTime();
+   [DllImport("__Internal")]
+   private static extern int TimeSyncIsSynced();</div>
 
       <h3>Протокол (если пишете свой клиент)</h3>
       <p>Всего одна пара сообщений:</p>
@@ -300,6 +340,16 @@ const msLeft = 1740000000000 - TimeSync.getServerTime();
 { "type": "sync_res", "t1": 1740000000000, "t2": 1740000000005, "t3": 1740000000005 }</div>
 
       <div class="hint">t1 — когда клиент отправил запрос<br>t2 — когда сервер получил запрос<br>t3 — когда сервер отправил ответ<br>t4 — когда клиент получил ответ (фиксируется на клиенте)</div>
+
+      <h3>Что делает модуль автоматически</h3>
+      <ul>
+        <li>При подключении делает 5 замеров, выбирает с минимальным RTT</li>
+        <li>Пересинхронизируется каждые 10 минут</li>
+        <li>Автоматически переподключается при обрыве (с нарастающей задержкой до 60 сек)</li>
+        <li>Таймауты на каждый замер (5 сек) — не зависает при проблемах с сетью</li>
+      </ul>
+
+      <div class="warn-box">Не создавайте несколько экземпляров TimeSync. Один модуль на всю игру — подключайте при старте, используйте <code>getServerTime()</code> везде где нужно серверное время.</div>
     </div>
   </div>
 
