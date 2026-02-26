@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Time Sync Client</title>
+  <title>Time Sync Server</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -14,8 +14,36 @@
       padding: 40px 20px;
       min-height: 100vh;
     }
-    .container { max-width: 560px; width: 100%; }
-    h1 { font-size: 20px; margin-bottom: 24px; color: #7eb8ff; }
+    .container { max-width: 700px; width: 100%; }
+    h1 { font-size: 22px; margin-bottom: 8px; color: #7eb8ff; }
+    .subtitle { font-size: 14px; color: #666; margin-bottom: 28px; }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 0; }
+    .tab {
+      padding: 10px 20px;
+      background: #1a1d27;
+      border: 1px solid #2a2d3a;
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      font-size: 14px;
+      color: #888;
+      transition: all .15s;
+    }
+    .tab.active { background: #1e2130; color: #7eb8ff; border-color: #3a3d5a; }
+    .tab:hover { color: #fff; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .panel {
+      background: #1e2130;
+      border: 1px solid #3a3d5a;
+      border-radius: 0 8px 8px 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
     .card {
       background: #1a1d27;
       border: 1px solid #2a2d3a;
@@ -58,33 +86,235 @@
     }
     button:hover { background: #1d4ed8; }
     button:disabled { opacity: .4; cursor: default; }
+
+    .doc h3 { font-size: 16px; color: #c0c8e0; margin: 20px 0 10px; }
+    .doc h3:first-child { margin-top: 0; }
+    .doc p { font-size: 14px; line-height: 1.7; color: #aaa; margin-bottom: 10px; }
+    .doc ul { padding-left: 20px; margin-bottom: 14px; }
+    .doc li { font-size: 14px; line-height: 1.8; color: #aaa; }
+    .doc code { background: #12141c; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 13px; color: #7eb8ff; }
+    .doc .code-block {
+      background: #12141c;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'Consolas', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #c8d0e0;
+      overflow-x: auto;
+      margin-bottom: 16px;
+      white-space: pre;
+    }
+    .doc .hint {
+      background: #1a2a1a;
+      border-left: 3px solid #4ade80;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      color: #8bbb8b;
+      margin-bottom: 16px;
+    }
+    .doc .warn-box {
+      background: #2a2a1a;
+      border-left: 3px solid #facc15;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      color: #bbbb6b;
+      margin-bottom: 16px;
+    }
+
+    .btn-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .btn-desc { font-size: 13px; color: #888; }
   </style>
 </head>
 <body>
 <div class="container">
-  <h1>Time Sync Client</h1>
+  <h1>Time Sync Server</h1>
+  <p class="subtitle">Источник истинного времени для мультиплеерной игры</p>
 
-  <div>
-    <button id="btnConnect">Подключиться</button>
-    <button id="btnSync" disabled>Синхронизировать</button>
+  <div class="tabs">
+    <div class="tab active" data-tab="demo">Демо</div>
+    <div class="tab" data-tab="docs">Инструкция</div>
+    <div class="tab" data-tab="code">Код для игры</div>
   </div>
 
-  <div class="card">
-    <h2>Состояние</h2>
-    <div class="row"><span class="label">Статус</span><span class="value" id="status">отключён</span></div>
-    <div class="row"><span class="label">Offset</span><span class="value" id="offset">—</span></div>
-    <div class="row"><span class="label">RTT</span><span class="value" id="rtt">—</span></div>
-    <div class="row"><span class="label">Серверное время</span><span class="value" id="serverTime">—</span></div>
-    <div class="row"><span class="label">Локальное время</span><span class="value" id="localTime">—</span></div>
+  <!-- ================= DEMO TAB ================= -->
+  <div class="panel">
+  <div class="tab-content active" id="tab-demo">
+
+    <div class="btn-row">
+      <button id="btnConnect">Подключиться</button>
+      <span class="btn-desc">Установить WebSocket-соединение с сервером</span>
+    </div>
+    <div class="btn-row" style="margin-bottom:16px">
+      <button id="btnSync" disabled>Синхронизировать</button>
+      <span class="btn-desc">Принудительно пересинхронизировать время (обычно каждые 10 мин)</span>
+    </div>
+
+    <div class="card">
+      <h2>Состояние</h2>
+      <div class="row"><span class="label">Статус</span><span class="value" id="status">отключён</span></div>
+      <div class="row"><span class="label">Offset</span><span class="value" id="offset">—</span></div>
+      <div class="row"><span class="label">RTT</span><span class="value" id="rtt">—</span></div>
+      <div class="row"><span class="label">Серверное время</span><span class="value" id="serverTime">—</span></div>
+      <div class="row"><span class="label">Локальное время</span><span class="value" id="localTime">—</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Лог</h2>
+      <div id="log"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Лог</h2>
-    <div id="log"></div>
+  <!-- ================= DOCS TAB ================= -->
+  <div class="tab-content" id="tab-docs">
+    <div class="doc">
+      <h3>Что это?</h3>
+      <p>Сервер истинного времени — единый источник времени для всех игроков. Каждый клиент подключается по WebSocket, измеряет разницу между своими часами и серверными, и может в любой момент узнать точное серверное время.</p>
+
+      <h3>Как работает синхронизация</h3>
+      <ul>
+        <li>Клиент отправляет запрос <code>sync_req</code> с локальной меткой <code>t1</code></li>
+        <li>Сервер получает, ставит метку <code>t2</code>, отправляет ответ с <code>t2</code> и <code>t3</code> (момент отправки)</li>
+        <li>Клиент получает ответ, фиксирует <code>t4</code></li>
+        <li>Вычисляется <code>RTT = (t4 - t1) - (t3 - t2)</code> и <code>offset = ((t2 - t1) + (t3 - t4)) / 2</code></li>
+      </ul>
+      <div class="hint">При подключении делается 5 замеров, выбирается тот, у которого минимальный RTT — он самый точный.</div>
+
+      <h3>Кнопки на демо-странице</h3>
+      <ul>
+        <li><code>Подключиться</code> — устанавливает WebSocket-соединение и автоматически запускает первую синхронизацию (5 замеров)</li>
+        <li><code>Синхронизировать</code> — принудительная пересинхронизация вручную. Полезна для отладки. В игре синхронизация идёт автоматически каждые 10 минут</li>
+      </ul>
+
+      <h3>Что показывают значения</h3>
+      <ul>
+        <li><code>Статус</code> — подключён / отключён от сервера</li>
+        <li><code>Offset</code> — разница между вашими часами и серверными (в мс). Положительное значение = ваши часы отстают</li>
+        <li><code>RTT</code> — Round Trip Time, время туда-обратно до сервера. Зелёный &lt;50мс, жёлтый &lt;150мс, красный &gt;150мс</li>
+        <li><code>Серверное время</code> — текущее время на сервере (вычислено через offset)</li>
+        <li><code>Локальное время</code> — ваши системные часы</li>
+      </ul>
+
+      <h3>Адрес для подключения</h3>
+      <div class="code-block">wss://time-server-production.up.railway.app</div>
+      <div class="warn-box">URL постоянный — не меняется. Используйте его в вашей игре.</div>
+    </div>
   </div>
+
+  <!-- ================= CODE TAB ================= -->
+  <div class="tab-content" id="tab-code">
+    <div class="doc">
+      <h3>Минимальный код (копируй в игру)</h3>
+      <p>Этот модуль подключается к серверу, синхронизирует время и даёт функцию <code>getServerTime()</code>:</p>
+
+      <div class="code-block">const TimeSync = (() => {
+  const URL = 'wss://time-server-production.up.railway.app';
+  const RESYNC_MS = 10 * 60 * 1000; // 10 минут
+
+  let ws = null;
+  let offset = 0;
+  let synced = false;
+  let _onSync = null;
+  let _syncCb = null;
+
+  function connect(onSync) {
+    _onSync = onSync || null;
+    ws = new WebSocket(URL);
+
+    ws.onopen = () =&gt; _runSync();
+
+    ws.onmessage = (e) =&gt; {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'sync_res' &amp;&amp; _syncCb) _syncCb(msg, Date.now());
+    };
+
+    ws.onclose = () =&gt; {
+      synced = false;
+      setTimeout(() =&gt; connect(_onSync), 3000);
+    };
+  }
+
+  function _sendProbe() {
+    return new Promise((resolve) =&gt; {
+      const t1 = Date.now();
+      _syncCb = (msg, t4) =&gt; {
+        _syncCb = null;
+        resolve({
+          rtt: (t4 - msg.t1) - (msg.t3 - msg.t2),
+          offset: ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2
+        });
+      };
+      ws.send(JSON.stringify({ type: 'sync_req', t1 }));
+    });
+  }
+
+  async function _runSync() {
+    const results = [];
+    for (let i = 0; i &lt; 5; i++) results.push(await _sendProbe());
+    const best = results.reduce((a, b) =&gt; a.rtt &lt; b.rtt ? a : b);
+    offset = best.offset;
+    synced = true;
+    if (_onSync) _onSync({ offset, rtt: best.rtt });
+    setTimeout(() =&gt; _runSync(), RESYNC_MS);
+  }
+
+  return {
+    connect,
+    getServerTime: () =&gt; Date.now() + offset,
+    isSynced: () =&gt; synced,
+    getOffset: () =&gt; offset
+  };
+})();</div>
+
+      <h3>Использование в игре</h3>
+      <div class="code-block">// 1. Подключиться (один раз при старте)
+TimeSync.connect((info) =&gt; {
+  console.log(`Синхронизировано! Offset: ${info.offset}ms, RTT: ${info.rtt}ms`);
+});
+
+// 2. Получить серверное время в любой момент
+const now = TimeSync.getServerTime();
+
+// 3. Проверить, прошла ли синхронизация
+if (TimeSync.isSynced()) {
+  // можно начинать игру
+}
+
+// Примеры:
+// Таймер до события (серверное время 1740000000000):
+const msLeft = 1740000000000 - TimeSync.getServerTime();
+
+// Сравнение действий двух игроков — оба используют
+// getServerTime(), поэтому метки сравнимы между собой</div>
+
+      <h3>Протокол (если пишете свой клиент)</h3>
+      <p>Всего одна пара сообщений:</p>
+      <div class="code-block">// Клиент → Сервер:
+{ "type": "sync_req", "t1": 1740000000000 }
+
+// Сервер → Клиент:
+{ "type": "sync_res", "t1": 1740000000000, "t2": 1740000000005, "t3": 1740000000005 }</div>
+
+      <div class="hint">t1 — когда клиент отправил запрос<br>t2 — когда сервер получил запрос<br>t3 — когда сервер отправил ответ<br>t4 — когда клиент получил ответ (фиксируется на клиенте)</div>
+    </div>
+  </div>
+
+  </div><!-- .panel -->
 </div>
 
 <script>
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
 const SYNC_PROBES = 5;
 const RESYNC_INTERVAL_MS = 10 * 60 * 1000;
 
