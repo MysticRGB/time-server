@@ -17,6 +17,20 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(data);
     });
+  } else if (req.url === '/timesync-client.js') {
+    const file = path.join(__dirname, 'timesync-client.js');
+    fs.readFile(file, (err, data) => {
+      if (err) {
+        res.writeHead(500);
+        res.end('Error');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="timesync-client.js"',
+      });
+      res.end(data);
+    });
   } else {
     res.writeHead(404);
     res.end('Not found');

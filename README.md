@@ -52,32 +52,43 @@ npm start
 
 ---
 
-## Интеграция в игру
+## Интеграция в игру (JS + HTML)
 
-### 1. Подключите файл
+### Шаг 1 — Подключите файл
 
-Скопируйте `timesync-client.js` в ваш проект и подключите:
+Скачайте `timesync-client.js` (кнопка на демо-странице или из этого репозитория) и положите рядом с HTML-файлом игры:
+
+```
+my-game/
+├── index.html
+├── game.js
+└── timesync-client.js   ← сюда
+```
+
+В HTML подключите **перед** скриптом игры:
 
 ```html
 <script src="timesync-client.js"></script>
+<script src="game.js"></script>
 ```
 
-Файл самодостаточный, без зависимостей.
-
-### 2. Подключитесь при старте игры
+### Шаг 2 — Подключитесь при старте
 
 ```javascript
 TimeSync.connect({
   onSync: (info) => {
-    console.log(`Синхронизировано! Offset: ${info.offset}ms, RTT: ${info.rtt}ms`);
+    console.log('Синхронизировано! Offset:', info.offset, 'ms, RTT:', info.rtt, 'ms');
   },
   onStatus: (status) => {
-    console.log('Статус соединения:', status);
+    // 'connected' | 'disconnected' | 'error'
+    console.log('Соединение:', status);
   }
 });
 ```
 
-### 3. Используйте серверное время
+### Шаг 3 — Используйте серверное время
+
+Везде, где нужно единое время для всех игроков, вместо `Date.now()` используйте:
 
 ```javascript
 const now = TimeSync.getServerTime();
@@ -94,14 +105,14 @@ const now = TimeSync.getServerTime();
 | `resync()` | Принудительная пересинхронизация |
 | `getServerTime()` | Текущее серверное время (unix ms) |
 | `isSynced()` | `true` если синхронизация завершена |
-| `getOffset()` | Offset в мс (серверное − локальное) |
+| `getOffset()` | Offset в мс |
 | `getRtt()` | RTT последней синхронизации в мс |
 
 ### Параметры `connect(opts)`
 
 ```javascript
 TimeSync.connect({
-  url:      'wss://...',             // сервер (по умолчанию production)
+  url:      'wss://...',             // необязательно, по умолчанию production
   onSync:   ({ offset, rtt }) => {}, // после каждой синхронизации
   onStatus: (status) => {}           // 'connected' | 'disconnected' | 'error'
 });
@@ -114,13 +125,14 @@ TimeSync.connect({
 ### Запуск игры после синхронизации
 
 ```javascript
+let gameStarted = false;
+
 TimeSync.connect({
   onSync: () => {
-    if (!gameStarted) startGame();
-  },
-  onStatus: (s) => {
-    if (s === 'disconnected') showReconnectOverlay();
-    if (s === 'connected') hideReconnectOverlay();
+    if (!gameStarted) {
+      gameStarted = true;
+      startGame();
+    }
   }
 });
 ```
@@ -132,9 +144,12 @@ const EVENT_TIME = 1740000000000;
 
 setInterval(() => {
   if (!TimeSync.isSynced()) return;
-  const msLeft = EVENT_TIME - TimeSync.getServerTime();
-  const sec = Math.max(0, Math.ceil(msLeft / 1000));
-  showLabel(msLeft <= 0 ? 'Событие началось!' : `До события: ${sec} сек`);
+  const left = EVENT_TIME - TimeSync.getServerTime();
+  if (left <= 0) {
+    showLabel('Событие началось!');
+  } else {
+    showLabel('До события: ' + Math.ceil(left / 1000) + ' сек');
+  }
 }, 100);
 ```
 
@@ -159,70 +174,9 @@ function getCurrentWave() {
 }
 
 function msUntilNextWave() {
-  const t = TimeSync.getServerTime();
-  return WAVE_INTERVAL - (t % WAVE_INTERVAL);
+  return WAVE_INTERVAL - (TimeSync.getServerTime() % WAVE_INTERVAL);
 }
 ```
-
----
-
-## Интеграция с Construct 3
-
-1. Импортируйте `timesync-client.js` в проект (Files → Import)
-2. В `index.html` добавьте `<script src="timesync-client.js"></script>` перед `</head>`
-3. Используйте через **Browser → Execute JS**:
-
-```javascript
-TimeSync.connect()
-TimeSync.getServerTime()
-TimeSync.isSynced()
-```
-
-## Интеграция с Unity (WebGL)
-
-1. Положите `timesync-client.js` в `Assets/Plugins/WebGL/`
-
-2. Создайте `Assets/Plugins/WebGL/TimeSync.jslib`:
-
-```javascript
-mergeInto(LibraryManager.library, {
-  TimeSyncConnect: function() {
-    TimeSync.connect();
-  },
-  TimeSyncGetServerTime: function() {
-    return TimeSync.getServerTime();
-  },
-  TimeSyncIsSynced: function() {
-    return TimeSync.isSynced() ? 1 : 0;
-  }
-});
-```
-
-3. В C#:
-
-```csharp
-[DllImport("__Internal")] private static extern void TimeSyncConnect();
-[DllImport("__Internal")] private static extern double TimeSyncGetServerTime();
-[DllImport("__Internal")] private static extern int TimeSyncIsSynced();
-```
-
----
-
-## Протокол
-
-Если вы пишете собственный клиент (не на JS), протокол минимален:
-
-**Клиент → Сервер (JSON через WebSocket):**
-```json
-{ "type": "sync_req", "t1": 1740000000000 }
-```
-
-**Сервер → Клиент:**
-```json
-{ "type": "sync_res", "t1": 1740000000000, "t2": 1740000000005, "t3": 1740000000005 }
-```
-
-Клиент фиксирует `t4 = now()` при получении ответа и вычисляет offset/RTT по формулам выше.
 
 ---
 
@@ -230,6 +184,6 @@ mergeInto(LibraryManager.library, {
 
 - 5 замеров при подключении, выбор лучшего по RTT
 - Пересинхронизация каждые 10 минут
-- Автоматический реконнект при обрыве (с нарастающей задержкой 2с → 60с)
+- Автоматический реконнект при обрыве (задержка нарастает от 2 сек до 60 сек)
 - Таймаут 5 секунд на каждый замер
-- Корректная обработка ошибок WebSocket
+- Обработка ошибок WebSocket
